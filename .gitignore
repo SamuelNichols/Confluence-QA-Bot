@@ -1,0 +1,31 @@
+# Byte-compiled / optimized Python files
+*.pyc
+__pycache__/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+.venv/
+.venv3/
+.python-version
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Local development configuration
+.env
+
+# System and temporary files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
