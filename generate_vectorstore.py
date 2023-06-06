@@ -11,6 +11,7 @@ from langchain.vectorstores import FAISS
 from util.cost import EmbeddingCostEstimator
 from util.map_confluence import get_confluence_tree, get_path_to_root
 from util.api import get_confluence_api, url
+
 # args
 space_arg = "uProfile"
 
@@ -40,27 +41,30 @@ cost = EmbeddingCostEstimator()
 docs = []
 print("Starting to load documents")
 start_time = timeit.default_timer()
-for i, page in enumerate(all_pages): 
+for i, page in enumerate(all_pages):
     try:
-        pdf = api.get_page_as_pdf(page_id=page['id'])
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=True, dir='.') as temp_file:
+        pdf = api.get_page_as_pdf(page_id=page["id"])
+        with tempfile.NamedTemporaryFile(
+            suffix=".pdf", delete=True, dir="."
+        ) as temp_file:
             temp_file.write(pdf)
             temp_file.flush()  # Ensure the data is written to the file
             loader = PyPDFLoader(temp_file.name)
             pages = loader.load()
             for page in pages:
                 cost.add_document(page)
-                page.metadata['source'] = get_path_to_root(confluence_root_tree, page.metadata['title'])
-                page.metadata['page_link'] = url + all_pages[i]['_links']['webui']
+                page.metadata["source"] = get_path_to_root(confluence_root_tree, page.metadata.get("title"))
+                page.metadata["page_link"] = url + all_pages[i]["_links"]["webui"]
                 page.metadata.update(all_pages[i])
             docs += pages
     except Exception as e:
         print(e)
         continue
+
 elapsed = timeit.default_timer() - start_time
 print("Finished loading documents")
 print("Time elapsed:", elapsed)
-    
+
 # printing estimated cost to embed all documents and total tokens
 cost.print_cost()
 cost.print_tokens()
@@ -69,7 +73,7 @@ cost.print_tokens()
 # embedding all documents and saving to local faiss index
 print("Starting to embed documents")
 start_time = timeit.default_timer()
-embeddings = OpenAIEmbeddings(model='text-embedding-ada-002')
+embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
 db = FAISS.from_documents(docs, embeddings)
 elapsed = timeit.default_timer() - start_time
 print("Finished embedding documents")

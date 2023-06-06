@@ -29,3 +29,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# faiss index (could contain sensitive data, remove this only if you know what you are doing)
+confluence_faiss_index/

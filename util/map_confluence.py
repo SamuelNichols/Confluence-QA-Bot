@@ -29,4 +29,6 @@ def get_path_to_root(tree, page_title: str) -> str:
     for node in reversed(list(path)):
         path_str += node + " > "
     return "directory path to page in confluence from space home page(root): " + path_str[:-3]
+
+print(get_path_to_root(get_confluence_tree("uProfile - Genesis Global", "uProfile"), "Automatic Schema Migration in CICD"))
     
