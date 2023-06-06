@@ -1,110 +1,99 @@
+from typing import List
 from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts.prompt import PromptTemplate
-from langchain.chains import RetrievalQAWithSourcesChain
+from langchain.chains import RetrievalQA
 from langchain.memory import ConversationBufferMemory
 from langchain.tools import BaseTool
 from langchain.agents import Tool, initialize_agent
-from pydantic import BaseModel
+from langchain.schema import Document, HumanMessage
+from langchain.callbacks import get_openai_callback
+import tiktoken
 
+class ConfluenceLinkSearchTool(BaseTool):
+    name = "Confluence Search Tool"
+    description = """given a question from related to uProfile, genesis, and Identity
+    returns a list of links to confluence pages that might answer the question
+    To use this tool you must provide the folloing parameter
+    ['question']
+    """
 
-# class ConfluenceSearchTool(BaseTool):
-#     name = "Confluence Search Tool"
-#     description = """searches confluence for articles related to uProfile, genesis, and Identity
-#     To use this tool you must provide the folloing parameter
-#     ['query']
-#     """
+    # Getting vectorstore as retriever
+    embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
+    uprofile_db = FAISS.load_local("confluence_faiss_index", embeddings)
+    urpofile_db_retriever = uprofile_db.as_retriever()
 
-#     # Getting vectorstore as retriever
-#     embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-#     uprofile_db = FAISS.load_local("confluence_faiss_index", embeddings)
-#     urpofile_db_retriever = uprofile_db.as_retriever()
-#     # Creating prompt for qa chain
-#     search_template = PromptTemplate(
-#         input_variables=["question"],
-#         template="""
-#                         % QUERY:
-#                         Using the information given, do your best to answer the question
-#                         Format the answer in an easy to read way
-#                         Give as much detail as possible to give a complete answer
-#                         after you finish your answer, present links to all relavant articles
-
-#                         % REQUEST: {question}
-                        
-#                         % RESPONSE:
-#                     """,
-#     )
-#     llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo")
-#     # retrieval qa chain
-#     qa = RetrievalQA.from_chain_type(
-#         llm=llm,
-#         chain_type="stuff",
-#         retriever=urpofile_db_retriever,
-#         verbose=True,
-#     )
-
-#     def _run(self, query: str) -> str:
-#         """Use the tool."""
-#         question = self.search_template.format(question=query)
-#         return self.qa.run(question)
+    def _run(self, query: str) -> str:
+        """Use the tool."""
+        results = self.uprofile_db.similarity_search(query, k=5)
+        results_prompt = ""
+        for i, result in enumerate(results):
+            results_prompt += f"i: {i} _title: {result.metadata.get('title')} _link: {result.metadata.get('link')} _content: {result.page_content}\n"
+        
+        prompt_template = PromptTemplate(
+            input_variables=["results_prompt", "query"],
+            template="""Use the following information to answer the question, do not use any other information.\n
+            {results_prompt}
+            
+            given the following question, create a list of links to confluence pages that might answer the question
+            use the following format and make it human readable:
+            1. Title (title of the confluence page that might answer the question, comes fomr _title)
+            Link (link to the confluence page that might answer the question, comes from _link)
+            Summary (summary of the confluence page that might answer the question, comes from _content)
+            ...
+            % QUESTION: {query}
+            % RESPONSE:
+            """
+        )
+        question = prompt_template.format(results_prompt=results_prompt, query=query)
+        llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo")
+        return llm(messages=[HumanMessage(content=question)]).content
     
-#     async def _arun(self, query: str) -> str:
-#         """Use the tool asynchronously."""
-#         raise NotImplementedError("custom_search does not support async")
+    async def _arun(self, query: str) -> str:
+        """Use the tool asynchronously."""
+        raise NotImplementedError("custom_search does not support async")
 
-
-# # Initializing qa chain
-# memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-# # # Initializing tool
-# tools = [ConfluenceSearchTool()]
-
-# # Initializing agent
-# llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo")
-# agent = initialize_agent(
-#     agent='chat-conversational-react-description',
-#     tools=tools,
-#     llm=llm,
-#     verbose=True,
-#     max_iterations=3,
-#     early_stopping_method='generate',
-#     memory=memory
-# )
-
-# user_input = None
-# while user_input != "exit":
-#     if user_input is not None:
-#         agent.run(user_input)
-#     print("Enter a question to search confluence for: ")
-#     user_input = input()
-
-# Getting vectorstore as retriever
+def get_docs_from_doc(vectorstore: FAISS, document: Document) -> List[Document]:
+    """every confluence page might be broken down into multiple documents
+        returns all documents that share a page with a given document
+    """
+    similar = vectorstore.similarity_search(document.metadata.get('title'), k=10)
+    pages = [doc for doc in similar if doc.metadata.get('title') == document.metadata.get('title')]
+    return pages
+    
+# # Getting vectorstore as retriever
 embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
 uprofile_db = FAISS.load_local("confluence_faiss_index", embeddings)
-urpofile_db_retriever = uprofile_db.as_retriever()
-# Creating prompt for qa chain
-search_template = PromptTemplate(
-    input_variables=["question"],
-    template="""
-                    % QUERY:
-                    Using the information given, do your best to answer the question
-                    Format the answer in an easy to read way
-                    Give as much detail as possible to give a complete answer
-                    after you finish your answer, present links to all relavant articles
 
-                    % REQUEST: {question}
-                    
-                    % RESPONSE:
-                """,
-)
+query = "where would I look to fix a pagerduty problem?"
 
-llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo")
-# retrieval qa chain
-qa = RetrievalQAWithSourcesChain.from_chain_type(
-    llm=llm,
-    chain_type="stuff",
-    retriever=urpofile_db_retriever,
-    verbose=True,
-)
-print(qa(search_template.format(question="What is uProfile?")))
+results = uprofile_db.similarity_search(query, k=5)
+results_prompt = ""
+for i, result in enumerate(results):
+    results_prompt += f"i: {i} _title: {result.metadata.get('title')} _link: {result.metadata.get('page_link')} _content: {result.page_content}\n"
+
+prompt_template = PromptTemplate(
+    input_variables=["results_prompt", "query"],
+    template="""Use the following information to answer the question, do not use any other information.\n
+    {results_prompt}
     
+    given the following question, create a list of links to confluence pages that might answer the question
+    use the following format and make it human readable:
+    1. Title (title of the confluence page that might answer the question, comes fomr _title)
+       Link (link to the confluence page that might answer the question, comes from _link)
+       Summary (summary of the confluence page that might answer the question, comes from _content)
+    ...
+    % QUESTION: {query}
+    % RESPONSE:
+    """
+)
+question = prompt_template.format(results_prompt=results_prompt, query=query)
+llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo", verbose=True)
+with get_openai_callback() as cb:
+    result = llm(messages=[HumanMessage(content=question)])
+    print(result.content)
+    print(cb.total_cost)
+    
+# TODO: add a tool that takes a title and returns the page as a set of steps or a detailed explaination+summary
+# TODO: add an agent that puts together the steps of getting related links and applying the resulting pages to the initial question, will search for more context if needed
