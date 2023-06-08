@@ -1,9 +1,5 @@
-# This code sample uses the 'requests' library:
-# http://docs.python-requests.org
-import pickle
 import tempfile
 import os
-import time
 import timeit
 
 from langchain.document_loaders import PyPDFLoader

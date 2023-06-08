@@ -1,14 +1,7 @@
-from typing import List
 from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
-from langchain.prompts.prompt import PromptTemplate
-from langchain.chains import RetrievalQA
-from langchain.memory import ConversationBufferMemory
-from langchain.tools import BaseTool
-from langchain.agents import Tool, initialize_agent, AgentType
-from langchain.schema import Document, HumanMessage
-from langchain.callbacks import get_openai_callback
+from langchain.agents import initialize_agent, AgentType
 
 from tools.search import ConfluenceLinkSearchTool
 
