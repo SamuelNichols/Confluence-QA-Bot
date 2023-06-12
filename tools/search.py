@@ -1,32 +1,26 @@
 from typing import List
+import tiktoken
+from atlassian import Confluence
 from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.chat_models import ChatOpenAI
+from langchain.llms import OpenAI
 from langchain.prompts.prompt import PromptTemplate
 from langchain.tools import BaseTool
-from langchain.schema import HumanMessage, Document
+from langchain.schema import Document
+from langchain.chains.question_answering import load_qa_chain
 
 from util.api import get_confluence_api
-
-def get_docs_from_doc(vectorstore: FAISS, document: Document) -> List[Document]:
-    """every confluence page might be broken down into multiple documents
-        returns all documents that share a page with a given document
-    """
-    similar = vectorstore.similarity_search(document.metadata.get('title'), k=10)
-    pages = [doc for doc in similar if doc.metadata.get('title') == document.metadata.get('title')]
-    return pages
-
+from util.loaders import from_pdf
+from space_config import get_confluence_space
+    
 class ConfluenceLinkSearchTool(BaseTool):
     name = "Confluence Search Tool"
-    description = """given a question
-    returns a list of links to confluence pages that might answer the question
+    description = """useful for when you want to get a list of links to confluence pages that might answer a question
     """
-    # return_direct = True
 
     # Getting vectorstore
-    embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-    uprofile_db = FAISS.load_local("confluence_faiss_index", embeddings)
-
+    uprofile_db: FAISS = FAISS.load_local("confluence_faiss_index", OpenAIEmbeddings(model="text-embedding-ada-002"))
+    
     def _run(self, query: str) -> str:
         """Use the tool."""
         results = self.uprofile_db.similarity_search(query, k=5)
@@ -36,59 +30,62 @@ class ConfluenceLinkSearchTool(BaseTool):
 
         prompt_template = PromptTemplate(
             input_variables=["results_prompt", "query"],
-            template="""Use the following information to answer the question, do not use any other information.\n
+            template="""Use the following information to answer the question
+            do not use any other information.
+            be clear and consise.
             {results_prompt}
             
-            given the following question, create a list of links to confluence pages that might answer the question
-            use the following format and make it human readable:
-            1. Title (title of the confluence page that might answer the question, comes fomr _title)
-            Summary (summary of the confluence page that might answer the question, comes from _content)
-            Link (link to the confluence page that might answer the question, comes from _source)
-            ...
+            create a list of links to confluence pages that might answer the question
+            use the following format
+            [
+                {{
+                    "Title": "title = _title",
+                    "Summary": "summary of _content, retains all context",
+                    "Link": "link = _source"
+                }},
+                ...
+            ] 
+
             % QUESTION: {query}
             % RESPONSE:
             """
         )
         question = prompt_template.format(results_prompt=results_prompt, query=query)
-        llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo", verbose=True)
-        return llm(messages=[HumanMessage(content=question)]).content
+        llm = OpenAI(temperature=0, model_name="text-davinci-003", verbose=True)
+        return llm(question)
     
     async def _arun(self, query: str) -> str:
         """Use the tool asynchronously."""
         raise NotImplementedError("custom_search does not support async")
+
     
-class ConfluenceLinkDescriber(BaseTool):
-    name = "Confluence Search Tool"
-    description = """given a confluence page title
-    gathers all information about that page and returns a summary that retains all of the original context
+class ConfluencePageDescriberTool(BaseTool):
+    name  = "Confluence Page Describer"
+    description = """useful for when you want to get more information about a confluence page given its title and space
     """
-    # return_direct = False
 
     # getting confluence api
-    api = get_confluence_api()
+    api: Confluence = get_confluence_api()
+    
+    # Getting vectorstore
+    uprofile_db: FAISS = FAISS.load_local("confluence_faiss_index", OpenAIEmbeddings(model="text-embedding-ada-002"))
 
-    def _run(self, page_title: str) -> str:
+    def _run(self, title: str) -> List[str]:
         """Use the tool."""
-        self.api.get()
-
-        prompt_template = PromptTemplate(
-            input_variables=["results_prompt", "query"],
-            template="""Use the following information to answer the question, do not use any other information.\n
-            {results_prompt}
-            
-            given the following question, create a list of links to confluence pages that might answer the question
-            use the following format and make it human readable:
-            1. Title (title of the confluence page that might answer the question, comes fomr _title)
-            Summary (summary of the confluence page that might answer the question, comes from _content)
-            Link (link to the confluence page that might answer the question, comes from _source)
-            ...
-            % QUESTION: {query}
-            % RESPONSE:
-            """
-        )
-        question = prompt_template.format(results_prompt=results_prompt, query=query)
-        llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo", verbose=True)
-        return llm(messages=[HumanMessage(content=question)]).content
+        curr_page = self.api.get_page_by_title(get_confluence_space(), title)
+        page_pdf = self.api.get_page_as_pdf(curr_page['id'])
+        pages = from_pdf(page_pdf)
+        # llm = OpenAI(temperature=0, model_name="text-davinci-003", verbose=True)
+        # chain = load_qa_chain(llm = llm, chain_type="refine")
+        # question = """
+        # keep as much instructional information as possible while keeping the page under 3000 tokens
+        # """
+        # result = (chain({"input_documents": pages, "question": question}, return_only_outputs=True)['output_text'])
+        # print(result)
+        encoding = tiktoken.get_encoding("cl100k_base")
+        concatenated_string = ''.join([doc.page_content for doc in pages])
+        num_tokens = len(encoding.encode(concatenated_string))
+        return f"tokens in page: {num_tokens}"
     
     async def _arun(self, query: str) -> str:
         """Use the tool asynchronously."""

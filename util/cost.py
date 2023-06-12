@@ -20,7 +20,7 @@ class EmbeddingCostEstimator:
     def print_tokens(self) -> None:
         print(f"Total tokens: {self.tokens}")
 
-    def embedding_cost_estimate(self, num_tokens:int, model_cost: str, model_tokens: str) -> int:
+    def embedding_cost_estimate(self, num_tokens:int, model_cost: float, model_tokens: float) -> float:
         """Returns the estimated cost of an openai text embedding run
         Args:
             num_tokens: number of tokens in the text

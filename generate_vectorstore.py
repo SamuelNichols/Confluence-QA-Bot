@@ -1,15 +1,13 @@
-import tempfile
 import os
 import timeit
 
-from langchain.document_loaders import PyPDFLoader
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from atlassian import Confluence
 
 from util.cost import EmbeddingCostEstimator
-# from util.map_confluence import get_confluence_tree, get_path_to_root
 from util.api import get_confluence_api, url
+from util.loaders import from_pdf
 
 # args
 space_arg = "uProfile"
@@ -48,19 +46,12 @@ start_time = timeit.default_timer()
 for i, page in enumerate(all_pages):
     try:
         pdf = api.get_page_as_pdf(page_id=page["id"])
-        with tempfile.NamedTemporaryFile(
-            suffix=".pdf", delete=True, dir="."
-        ) as temp_file:
-            print("Loading page", i, "of", len(all_pages))
-            temp_file.write(pdf)
-            temp_file.flush()  # Ensure the data is written to the file
-            loader = PyPDFLoader(temp_file.name)
-            pages = loader.load()
-            for page in pages:
-                cost.add_document(page)
-                page.metadata["source"] = url + all_pages[i].get('_links').get('webui')
-                page.metadata.update(all_pages[i])
-            docs += pages
+        pages = from_pdf(pdf)
+        for page in pages:
+            cost.add_document(page)
+            page.metadata["source"] = url + all_pages[i].get('_links').get('webui')
+            page.metadata.update(all_pages[i])
+        docs += pages
     except Exception as e:
         print(e)
         continue
